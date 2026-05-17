@@ -79,8 +79,7 @@ tree = app_commands.CommandTree(client)
 @tree.command(name="kick", description="Kicks a member from the server. Strictly Bhavesh only.")
 @app_commands.describe(member="The member to kick", reason="The reason for kicking")
 async def kick_slash(interaction: discord.Interaction, member: discord.Member, reason: Optional[str] = None):
-    # Strictly verify that only Bhavesh (bashoranges) is invoking this slash command
-    is_bhavesh = (interaction.user.id == BHAVESH_USER_ID) or (interaction.user.name.lower() == "bashoranges")
+    is_bhavesh = check_is_bhavesh(interaction.user)
     if not is_bhavesh:
         await interaction.response.send_message("who do u think u are? 😭 only bashoranges (bhavesh) can kick people", ephemeral=True)
         return
@@ -347,6 +346,32 @@ def resolve_member(guild: discord.Guild, query: str) -> Optional[discord.Member]
             return member
 
     return None
+
+
+def check_is_bhavesh(user) -> bool:
+    """
+    Check if a user is Bhavesh (the server President/Creator).
+    Matches either ID (from .env), raw username (bashoranges),
+    global profile name, or nickname display name.
+    """
+    if not user:
+        return False
+    user_id = user.id
+    name_lower = user.name.lower()
+    global_lower = getattr(user, "global_name", "")
+    global_lower = global_lower.lower() if global_lower else ""
+    display_lower = getattr(user, "display_name", "")
+    display_lower = display_lower.lower() if display_lower else ""
+    
+    return (
+        user_id == BHAVESH_USER_ID
+        or name_lower == "bashoranges"
+        or global_lower == "bhavesh"
+        or display_lower == "bhavesh"
+        or "bashoranges" in name_lower
+        or "bhavesh" in display_lower
+    )
+
 
 
 def detect_response_tone(response_text: str, user_input: str) -> Tuple[str, str]:
@@ -789,9 +814,9 @@ async def on_message(message: discord.Message):
     # ── Clyde Protocol (Natural Language Kick) ──────────────────────────────────
     content_lower = content.lower()
     if "clyde" in content_lower and "kick" in content_lower:
-        is_bhavesh = (message.author.id == BHAVESH_USER_ID) or (message.author.name.lower() == "bashoranges")
+        is_bhavesh = check_is_bhavesh(message.author)
         if is_bhavesh:
-            cleaned = content_lower.replace("clyde", "").replace("kick", "").replace(",", "").replace(".", "").strip()
+            cleaned = content_lower.replace("clyde", "").replace("kick", "").strip(" .,!?*~`\"'")
             target_member = None
             if message.mentions:
                 for m in message.mentions:
@@ -886,7 +911,7 @@ async def on_message(message: discord.Message):
 
     # !kick command — strictly restricted to Bhavesh
     if content.lower().startswith("!kick"):
-        is_bhavesh = (message.author.id == BHAVESH_USER_ID) or (message.author.name.lower() == "bashoranges")
+        is_bhavesh = check_is_bhavesh(message.author)
         if not is_bhavesh:
             await message.reply("who do u think u are? 😭 only bashoranges (bhavesh) can kick people")
             return
@@ -915,7 +940,7 @@ async def on_message(message: discord.Message):
 
     # !ban command — strictly restricted to Bhavesh
     if content.lower().startswith("!ban"):
-        is_bhavesh = (message.author.id == BHAVESH_USER_ID) or (message.author.name.lower() == "bashoranges")
+        is_bhavesh = check_is_bhavesh(message.author)
         if not is_bhavesh:
             await message.reply("who do u think u are? 😭 only bashoranges (bhavesh) can ban people")
             return
