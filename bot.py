@@ -42,6 +42,7 @@ DISCORD_TOKEN       = os.getenv("DISCORD_TOKEN")
 ALLOWED_CHANNEL_ID  = 1505220178797920296
 
 ADMINS = ["bashoranges", "._.aazim_", "_._aazim_"]
+BHAVESH_USER_ID = int(os.getenv("BHAVESH_USER_ID", "0"))  # set BHAVESH_USER_ID in .env
 
 if not GEMINI_KEY or not DISCORD_TOKEN:
     print("❌ Missing GEMINI_KEY or DISCORD_TOKEN in .env")
@@ -69,6 +70,7 @@ model = genai.GenerativeModel(
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True      # needed for presence / member list
+intents.presences = True    # needed to detect online/offline/idle/dnd status
 client = discord.Client(intents=intents)
 
 # ── In-memory state ────────────────────────────────────────────────────────────
@@ -154,6 +156,78 @@ def _maybe_shift_mood():
         _current_mood = _get_time_mood()
         _mood_set_at  = time.time()
         print(f"[Cyfernaut] Mood shifted -> {_current_mood}")
+
+
+def adapt_mood_to_user_message(message: discord.Message):
+    """
+    Dynamically shifts/nudges the bot's mood based on the emotional vibe, slang, 
+    and punctuation of the incoming human message.
+    """
+    global _current_mood, _mood_set_at
+    
+    content = message.content.strip()
+    if not content:
+        return
+        
+    content_lower = content.lower()
+    
+    # 1. Caps/Panic/Hype detection (all-caps spam)
+    words = content.split()
+    caps_words = sum(1 for w in words if w.isupper() and len(w) > 1)
+    is_caps_spam = len(words) > 2 and (caps_words / len(words)) > 0.5
+    
+    # 2. Hindi & English vibe categories
+    vibe_signals = {
+        "menace": [
+            "stfu", "shut up", "idiot", "clown", "dumb", "useless", "worst", "hate",
+            "bakwaas", "fattu", "bc", "loser", "ratio", "cope", "l take", "ugly", "cringe"
+        ],
+        "sleepy_or_dry": [
+            "😭", "💔", "sad", "depressed", "existential crisis", "tired", "exhausted",
+            "thak gaya", "thak gayi", "dimag kharab", "give up", "cancel", "fail", "mid", "existential"
+        ],
+        "chaotic": [
+            "lmao", "💀", "🤣", "lol", "cackled", "sending me", "slaps", "obsessed", "wild",
+            "unhinged", "chaotic", "music video", "staring", "lollll", "lmaooo", "deceased", "stoppp"
+        ],
+        "locked_in": [
+            "webos", "nullpointer", "investigator", "coding", "project", "webgl", "bot",
+            "serious", "homework", "hw", "chem", "maths", "prep", "test", "exam"
+        ],
+        "chill": [
+            "yaar", "chill", "valid", "real", "on god", "no cap", "sahi", "pakka",
+            "mast", "bindaas", "chalta hai", "enjoy", "finally", "w"
+        ]
+    }
+    
+    # Score each vibe based on matching words or phrases
+    scores = {vibe: 0 for vibe in vibe_signals}
+    for vibe, keywords in vibe_signals.items():
+        for kw in keywords:
+            if kw in content_lower:
+                scores[vibe] += 1
+                
+    if is_caps_spam:
+        scores["chaotic"] += 2
+        
+    # Get highest scoring vibe (if score > 0)
+    max_vibe = max(scores, key=scores.get)
+    if scores[max_vibe] > 0:
+        old_mood = _current_mood
+        if max_vibe == "menace":
+            _current_mood = random.choice(["menace", "sarcastic", "dry"])
+        elif max_vibe == "sleepy_or_dry":
+            _current_mood = random.choice(["sleepy", "dry"])
+        elif max_vibe == "chaotic":
+            _current_mood = random.choice(["chaotic", "menace"])
+        elif max_vibe == "locked_in":
+            _current_mood = random.choice(["locked_in", "dry"])
+        elif max_vibe == "chill":
+            _current_mood = random.choice(["chill", "sarcastic"])
+            
+        if _current_mood != old_mood:
+            _mood_set_at = time.time()  # Reset mood duration timer for this adapted vibe
+            print(f"[Mood Engine] Vibe adaptation: User message '{content[:30]}...' shifted mood {old_mood} -> {_current_mood}")
 
 
 def _tick_stamina() -> int:
@@ -248,6 +322,73 @@ def detect_response_tone(response_text: str, user_input: str) -> Tuple[str, str]
     return tone, category
 
 
+def get_detailed_server_context(guild: discord.Guild) -> str:
+    """Fetches real-time, authentic server statistics, member listings, statuses, join times, and roles."""
+    if not guild:
+        return "No server/guild details available."
+    
+    total_members = guild.member_count
+    bots = sum(1 for m in guild.members if m.bot)
+    humans = total_members - bots
+    
+    online_humans = []
+    idle_humans = []
+    dnd_humans = []
+    offline_humans = []
+    
+    roleless_humans = []
+    member_details = []
+    
+    for m in guild.members:
+        if m.bot:
+            continue
+        
+        # Check roles
+        roles = [r.name for r in m.roles if not r.is_default()]
+        if not roles:
+            roleless_humans.append(m.display_name)
+        roles_str_member = ", ".join(roles) if roles else "No roles"
+        
+        # Join date
+        joined_str = m.joined_at.strftime("%Y-%m-%d %H:%M:%S UTC") if m.joined_at else "Unknown"
+        
+        # Status/Presence
+        status_str = str(m.status)
+        if m.status == discord.Status.online:
+            online_humans.append(m.display_name)
+        elif m.status == discord.Status.idle:
+            idle_humans.append(m.display_name)
+        elif m.status == discord.Status.do_not_disturb:
+            dnd_humans.append(m.display_name)
+        else:
+            offline_humans.append(m.display_name)
+            
+        member_details.append(
+            f"- {m.display_name} (Username: {m.name}, ID: <@{m.id}>) | Joined: {joined_str} | Status: {status_str} | Roles: {roles_str_member}"
+        )
+        
+    all_roles = [role for role in guild.roles if not role.is_default()]
+    roles_summary = ", ".join([f"{r.name} ({len(r.members)} members)" for r in all_roles])
+    
+    details_list = [
+        f"=== DETAILED DISCORD SERVER DIRECTORY: {guild.name} ===",
+        f"Total Members: {total_members} (Humans: {humans}, Bots: {bots})",
+        f"Online Humans: {len(online_humans)} ({', '.join(online_humans[:35])})",
+        f"Idle Humans: {len(idle_humans)} ({', '.join(idle_humans[:35])})",
+        f"DND Humans: {len(dnd_humans)} ({', '.join(dnd_humans[:35])})",
+        f"Offline Humans: {len(offline_humans)} ({', '.join(offline_humans[:35])})",
+        "",
+        f"All Server Roles: {roles_summary if roles_summary else 'None'}",
+        f"Roleless Humans (Only @everyone role): {', '.join(roleless_humans) if roleless_humans else 'None'}",
+        "",
+        "Full Member Directory & Metadata:",
+    ]
+    details_list.extend(member_details)
+    details_list.append("==========================================")
+    
+    return "\n".join(details_list)
+
+
 def build_brain_context(ctx_id: str, message: discord.Message) -> str:
     """
     Build the injected context block for each prompt turn.
@@ -255,6 +396,7 @@ def build_brain_context(ctx_id: str, message: discord.Message) -> str:
     This is the Reality Validation Engine — only real stored facts are surfaced.
     """
     _maybe_shift_mood()
+    adapt_mood_to_user_message(message)
 
     # Long-term memories (real, verified, stored facts only)
     memories = get_memories(ctx_id)
@@ -301,11 +443,29 @@ def build_brain_context(ctx_id: str, message: discord.Message) -> str:
 
     # Server reputation data
     server_stats = relationship_tracker.get_server_reputation_summary()
+    
+    # Real-time Discord API server stats/member listings
+    server_realtime = get_detailed_server_context(message.guild) if message.guild else "No server/guild context."
 
     # Consciousness personality summary
     c_data   = bot_consciousness.get_all_consciousness_data()
     sarcasm  = c_data["personality"].get("sarcasm_level", 0.7)
     playful  = c_data["personality"].get("playfulness", 0.8)
+
+    is_main_channel = (message.channel.id == ALLOWED_CHANNEL_ID)
+    if not is_main_channel:
+        channel_instruction = (
+            "IMPORTANT BEHAVIOR GATING:\n"
+            "* You are currently chatting in a secondary channel, not the main primary GC.\n"
+            "* Keep your responses extremely short, concise, and straight to the point.\n"
+            "* Do not start a long conversation or ask follow-up questions. Answer and wrap up.\n"
+            "* Do not chat too much here — be precise and brief."
+        )
+    else:
+        channel_instruction = (
+            "IMPORTANT BEHAVIOR GATING:\n"
+            "* You are in your main primary channel! You can be friendly, open, chatty, funny, sarcastic, and engage fully."
+        )
 
     ist_tz = timezone(timedelta(hours=5, minutes=30))
     current_time_ist = datetime.now(ist_tz).strftime("%I:%M %p, %A, %d %B %Y (India Standard Time)")
@@ -315,6 +475,8 @@ def build_brain_context(ctx_id: str, message: discord.Message) -> str:
 CURRENT TIME (India): {current_time_ist}
 CURRENT MOOD: {_current_mood}. {get_mood_hint()}
 SARCASM: {sarcasm:.1f}/1  PLAYFULNESS: {playful:.1f}/1
+
+{channel_instruction}
 
 THIS USER: {message.author.display_name} (ID: {message.author.id})
 FAMILIARITY: {familiarity}
@@ -331,6 +493,9 @@ DYNAMIC STRUCTURES (realtime tables/maps you have created to learn and organize 
 SERVER REPUTATION DATA (use this if asked about server stats, activity, or who is who):
 {server_stats}
 
+REAL-TIME DISCORD SERVER DATA & MEMBER DIRECTORY (Use this to answer ALL questions about who is in the server, how many members there are, when they joined, what roles they have, and who is online/offline/idle/dnd/roleless):
+{server_realtime}
+
 AVAILABLE USERS TO TAG (use <@id> to ping — only when natural, not every message):
 {members_str}
 
@@ -344,9 +509,144 @@ SPECIAL TAGS (append silently to your reply when needed):
   [IMPRESSION: label]  — update your impression of this user (funny/cringe/chill/chaotic/aggressive/smart/menace/dry/annoying/attention seeker)
   [CREATE_STRUCT: name | type | description] — create a new realtime map/table to store categorized data (types: map, list, table)
   [STORE: struct_name | key | json_value] — store/update data in your realtime structures
-  [SKIP]               — send nothing (proactive mode only, when conversation is boring)
+  [SKIP]               — send nothing (proactive mode or secondary channels when conversation is boring)
 ---"""
     return context
+
+
+# ── Moderation System ─────────────────────────────────────────────────────────
+
+# Comprehensive banned word list (English + Hinglish + common variants/l33t)
+BANNED_WORDS: list[str] = [
+    # English profanity
+    "fuck", "fucker", "fucking", "fucked", "fuk", "fck", "f*ck",
+    "shit", "sh1t", "sh!t", "shitty",
+    "bitch", "b1tch", "b!tch",
+    "asshole", "ass", "a$$",
+    "bastard", "cunt", "c*nt",
+    "dick", "d!ck", "cock",
+    "pussy", "nigga", "nigger", "n1gga", "n1gger",
+    "slut", "whore", "wh0re",
+    "retard", "r3tard",
+    "faggot", "fag",
+    "rape", "raping",
+    "kill yourself", "kys",
+    "motherf", "mf",
+    # Hinglish abusive
+    "madarchod", "maderchod", "mc", "bhosdike", "bhosdika", "bhosdiwale",
+    "chutiya", "chut", "chutiye",
+    "loda", "lauda", "lavda",
+    "gaand", "gand",
+    "harami", "haramkhor",
+    "randi", "rand1",
+    "bhosdi",
+    "saala", "sala",
+    "kamina",
+    "kutte", "kutta",
+    "suwar", "suar",
+    "ullu",
+    "gandu",
+    "chod", "chodna",
+]
+
+
+def _is_offensive(content: str) -> tuple[bool, str]:
+    """
+    Check if a message contains banned/offensive language.
+    Returns (is_offensive: bool, matched_word: str).
+    Case-insensitive, strips common l33t-speak variants and spaces between letters.
+    """
+    text = content.lower()
+    # Normalize common substitutions: @ → a, 0 → o, 3 → e, 1 → i, $ → s, ! → i
+    normalized = (
+        text
+        .replace("@", "a")
+        .replace("0", "o")
+        .replace("3", "e")
+        .replace("1", "i")
+        .replace("$", "s")
+        .replace("!", "i")
+        .replace("*", "")
+    )
+    # Also remove all spaces to catch s p a c e d out words
+    no_spaces = normalized.replace(" ", "").replace(".", "").replace("-", "")
+
+    for word in BANNED_WORDS:
+        w = word.lower()
+        if w in normalized or w in no_spaces:
+            return True, word
+    return False, ""
+
+
+async def handle_moderation(message: discord.Message) -> bool:
+    """
+    Checks a message for offensive content.
+    If found:
+      - Deletes the message
+      - Sends a warning in the channel tagging Bhavesh
+      - DMs Bhavesh with a full incident report
+    Returns True if the message was moderated (caller should stop processing it).
+    """
+    is_bad, matched_word = _is_offensive(message.content)
+    if not is_bad:
+        return False
+
+    author_display = message.author.display_name
+    author_mention = message.author.mention
+    channel_name   = getattr(message.channel, "name", "unknown-channel")
+    timestamp      = datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%H:%M:%S IST, %d %b %Y")
+    original_text  = message.content  # save before deletion
+
+    # 1. Delete the offensive message
+    try:
+        await message.delete()
+    except discord.Forbidden:
+        pass  # no permission to delete — still warn
+    except discord.NotFound:
+        pass  # already deleted
+
+    # 2. Public warning in the channel
+    bhavesh_mention = f"<@{BHAVESH_USER_ID}>" if BHAVESH_USER_ID else "@bashoranges"
+    warning_lines = [
+        f"yo {author_mention}, chill with the language fr 🚫",
+        f"that message was deleted. {bhavesh_mention} has been notified.",
+        f"keep it clean next time yaar",
+    ]
+    warning_msg = "\n".join(warning_lines)
+    try:
+        await message.channel.send(warning_msg)
+    except Exception:
+        pass
+
+    # 3. DM report to Bhavesh
+    report = (
+        f"🚨 **Moderation Report — Offensive Message Detected**\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"**User:** {author_display} ({message.author.name}, ID: `{message.author.id}`)\n"
+        f"**Channel:** #{channel_name}\n"
+        f"**Time:** {timestamp}\n"
+        f"**Trigger word:** `{matched_word}`\n"
+        f"**Original message:**\n>>> {original_text}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Message has been deleted. Warning issued in channel."
+    )
+    try:
+        if BHAVESH_USER_ID:
+            bhavesh_user = await client.fetch_user(BHAVESH_USER_ID)
+            await bhavesh_user.send(report)
+        else:
+            # Fallback: find by username in guild
+            guild = message.guild
+            if guild:
+                for member in guild.members:
+                    if member.name.lower() == "bashoranges":
+                        await member.send(report)
+                        break
+    except Exception as e:
+        print(f"[Moderation] Could not DM Bhavesh: {e}")
+
+    print(f"[Moderation] Deleted offensive message from {author_display}: '{original_text[:60]}'")
+    return True
 
 
 # ── Discord Events ─────────────────────────────────────────────────────────────
@@ -414,8 +714,11 @@ async def on_message(message: discord.Message):
                     await target_channel.send(content=message.content, files=files)
         return
 
-    if message.channel.id != ALLOWED_CHANNEL_ID:
-        return
+    # ── Moderation gate — runs before anything else on ALL guild channels ─────────────
+    # Skip moderation for admins
+    if message.author.name.lower() not in ADMINS:
+        if await handle_moderation(message):
+            return  # message was offensive — already handled
 
     content = message.content.strip()
 
@@ -496,29 +799,37 @@ async def on_message(message: discord.Message):
         and message.reference.resolved.author == client.user
     )
     
-    # Check if they are talking TO the bot or ABOUT the bot without @tagging
-    bot_names = ["cyfernaut", "cyfer", "bot", "ai"]
-    msg_lower = content.lower()
-    is_implied_mention = any(name in msg_lower for name in bot_names)
-    
-    # Check conversational momentum — if we just replied to them and they text right back
-    is_active_convo = False
-    active_state = _active_conversations.get(message.channel.id)
-    if active_state and active_state["user_id"] == message.author.id:
-        if (time.time() - active_state["time"]) < 60:  # 60 second active conversation window
-            is_active_convo = True
+    is_main_channel = (message.channel.id == ALLOWED_CHANNEL_ID)
 
-    is_proactive = False
-    if not is_mentioned and not is_reply_to_bot and not is_implied_mention and not is_active_convo:
-        global last_proactive_time
-        if (time.time() - last_proactive_time) > PROACTIVE_COOLDOWN:
-            if random.random() < 0.10:
-                is_proactive = True
-                last_proactive_time = time.time()
+    if not is_main_channel:
+        # In secondary channels, we ONLY respond if explicitly mentioned/replied to.
+        if not is_mentioned and not is_reply_to_bot:
+            return
+        is_proactive = False
+    else:
+        # Check if they are talking TO the bot or ABOUT the bot without @tagging
+        bot_names = ["cyfernaut", "cyfer", "bot", "ai"]
+        msg_lower = content.lower()
+        is_implied_mention = any(name in msg_lower for name in bot_names)
+        
+        # Check conversational momentum — if we just replied to them and they text right back
+        is_active_convo = False
+        active_state = _active_conversations.get(message.channel.id)
+        if active_state and active_state["user_id"] == message.author.id:
+            if (time.time() - active_state["time"]) < 60:  # 60 second active conversation window
+                is_active_convo = True
+
+        is_proactive = False
+        if not is_mentioned and not is_reply_to_bot and not is_implied_mention and not is_active_convo:
+            global last_proactive_time
+            if (time.time() - last_proactive_time) > PROACTIVE_COOLDOWN:
+                if random.random() < 0.10:
+                    is_proactive = True
+                    last_proactive_time = time.time()
+                else:
+                    return
             else:
                 return
-        else:
-            return
 
     # Process image attachments
     images = []
