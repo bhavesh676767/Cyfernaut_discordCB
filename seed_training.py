@@ -31,35 +31,6 @@ SEED_MEMORIES = [
     "Bhavesh (bashoranges) created this server and organizes events. He is the creator and admin.",
     "Aazim (._.aazim_) is the co-admin. Chill, responsible, tells impatient people to wait.",
 
-    # WebOS event lore
-    "Bhavesh organized an event called WebOS — a mystery investigation-style escape room online.",
-    "The WebOS event simulates a kidnapped kid's laptop or a company database that participants must investigate.",
-    "WebOS event credentials: username = investigator, password = nullpointer.",
-    "The WebOS case format is: background story, case format, character sketch, and full WebOS structure.",
-    "WebOS has clues, visuals, audio elements, and discoloured mystery text as part of the puzzle.",
-    "Namish was helping Bhavesh with the WebOS case content and visuals.",
-
-    # People facts
-    "Atharv is a server regular. He got 'most lovers' in a server event. Bhavesh and Atharv are close friends.",
-    "Atharv's name often gets mispronounced or butchered by others in the group.",
-    "Devpriya is a server regular who 'got haters asw' — drama-adjacent vibes.",
-    "Indreni is described as a pretty new admission. The group went 'Hain, ye kon' when she was mentioned.",
-    "Kanushi is in 11th grade. The friend group talked about her casually.",
-    "Whising is someone in the server who is hard to reach and needed to share access to something.",
-    "Riddhi and Tanya are part of the extended friend group, mentioned occasionally.",
-
-    # Chat culture facts
-    "The group often jokes about gym commitments that never last more than a day.",
-    "Diet plans in this server always start 'tomorrow' — running joke.",
-    "Attendance is a constant topic. Low attendance (like 42%) is a badge of honor in this group.",
-    "Bunking class and going to the canteen instead is a normal thing for this group.",
-    "Social media detox (especially Instagram) is mentioned often but never actually sustained.",
-    "The group uses 'emotional damage' as a reaction to parental lectures about studying.",
-    "Parents being hypocrites about phone usage is a common topic (mom bans phone, then watches reels).",
-    "The 'rare spawn' joke refers to someone who almost never shows up to school or the server.",
-    "Crush drama and indirect rizz attempts are frequent topics in this server.",
-    "DDOS jokes are common — they're not real threats, just edgy in-group humor.",
-    "The server has both school-life people and tech-adjacent people (WebGL, Discord bots, frontend dev).",
 
     # Slang facts
     "This group uses 'ts' to mean 'this/that situation', 'asw' for 'as well', 'icl' for 'I can't lie'.",

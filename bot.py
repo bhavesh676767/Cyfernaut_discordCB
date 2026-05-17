@@ -290,6 +290,36 @@ def split_message(text: str, limit: int = 2000) -> list[str]:
     return chunks
 
 
+def resolve_member(guild: discord.Guild, query: str) -> Optional[discord.Member]:
+    """
+    Resolves a query (mention, ID, username, or display name) to a discord.Member object.
+    """
+    if not guild:
+        return None
+    query = query.strip()
+    if not query:
+        return None
+
+    # Try mention matching (e.g. <@123456789> or <@!123456789>)
+    mention_match = re.match(r"<@!?(\d+)>", query)
+    if mention_match:
+        user_id = int(mention_match.group(1))
+        return guild.get_member(user_id)
+
+    # Try raw digit matching (user ID)
+    if query.isdigit():
+        user_id = int(query)
+        return guild.get_member(user_id)
+
+    # Try name matching (case-insensitive username or nickname)
+    query_lower = query.lower()
+    for member in guild.members:
+        if member.name.lower() == query_lower or member.display_name.lower() == query_lower:
+            return member
+
+    return None
+
+
 def detect_response_tone(response_text: str, user_input: str) -> Tuple[str, str]:
     """Detect tone and message category for the learning engine."""
     rl, ul = response_text.lower(), user_input.lower()
@@ -788,6 +818,64 @@ async def on_message(message: discord.Message):
                 await message.reply(f"cant find that meme file bro. make sure its in the memes folder")
         else:
             await message.reply("format: `!teach <meme_name> | <situation>`")
+        return
+
+    # !kick command — strictly restricted to Bhavesh
+    if content.lower().startswith("!kick"):
+        is_bhavesh = (message.author.id == BHAVESH_USER_ID) or (message.author.name.lower() == "bashoranges")
+        if not is_bhavesh:
+            await message.reply("who do u think u are? 😭 only bashoranges (bhavesh) can kick people")
+            return
+
+        parts = content.split(maxsplit=2)
+        if len(parts) < 2:
+            await message.reply("usage: `!kick <mention/ID/username> [reason]`")
+            return
+
+        target_query = parts[1]
+        reason = parts[2] if len(parts) > 2 else "Kicked by President Bhavesh"
+        
+        target_member = resolve_member(message.guild, target_query)
+        if not target_member:
+            await message.reply(f"couldn't find anyone matching `{target_query}` in the server")
+            return
+
+        try:
+            await target_member.kick(reason=reason)
+            await message.reply(f"✈️ **{target_member.display_name}** has been kicked from the server. Reason: `{reason}`")
+        except discord.Forbidden:
+            await message.reply(f"❌ can't kick `{target_member.display_name}`. my role is probably below theirs or i lack permission.")
+        except Exception as e:
+            await message.reply(f"❌ failed to kick: {e}")
+        return
+
+    # !ban command — strictly restricted to Bhavesh
+    if content.lower().startswith("!ban"):
+        is_bhavesh = (message.author.id == BHAVESH_USER_ID) or (message.author.name.lower() == "bashoranges")
+        if not is_bhavesh:
+            await message.reply("who do u think u are? 😭 only bashoranges (bhavesh) can ban people")
+            return
+
+        parts = content.split(maxsplit=2)
+        if len(parts) < 2:
+            await message.reply("usage: `!ban <mention/ID/username> [reason]`")
+            return
+
+        target_query = parts[1]
+        reason = parts[2] if len(parts) > 2 else "Banned by President Bhavesh"
+        
+        target_member = resolve_member(message.guild, target_query)
+        if not target_member:
+            await message.reply(f"couldn't find anyone matching `{target_query}` in the server")
+            return
+
+        try:
+            await target_member.ban(reason=reason, delete_message_days=0)
+            await message.reply(f"🔨 **{target_member.display_name}** has been banned from the server. Reason: `{reason}`")
+        except discord.Forbidden:
+            await message.reply(f"❌ can't ban `{target_member.display_name}`. my role is probably below theirs or i lack permission.")
+        except Exception as e:
+            await message.reply(f"❌ failed to ban: {e}")
         return
 
     # ── Interaction trigger logic ──────────────────────────────────────────────
