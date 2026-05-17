@@ -71,7 +71,28 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True      # needed for presence / member list
 intents.presences = True    # needed to detect online/offline/idle/dnd status
+from discord import app_commands
 client = discord.Client(intents=intents)
+tree = app_commands.CommandTree(client)
+
+@tree.command(name="kick", description="Kicks a member from the server. Strictly Bhavesh only.")
+@app_commands.describe(member="The member to kick", reason="The reason for kicking")
+async def kick_slash(interaction: discord.Interaction, member: discord.Member, reason: Optional[str] = None):
+    # Strictly verify that only Bhavesh (bashoranges) is invoking this slash command
+    is_bhavesh = (interaction.user.id == BHAVESH_USER_ID) or (interaction.user.name.lower() == "bashoranges")
+    if not is_bhavesh:
+        await interaction.response.send_message("who do u think u are? 😭 only bashoranges (bhavesh) can kick people", ephemeral=True)
+        return
+
+    reason_str = reason or "Kicked by President Bhavesh via Slash Command"
+    try:
+        await member.kick(reason=reason_str)
+        await interaction.response.send_message(f"✈️ **{member.display_name}** has been kicked from the server. Reason: `{reason_str}`")
+    except discord.Forbidden:
+        await interaction.response.send_message(f"❌ can't kick `{member.display_name}`. my role is probably below theirs or i lack permission.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"❌ failed to kick: {e}", ephemeral=True)
+
 
 # ── In-memory state ────────────────────────────────────────────────────────────
 
@@ -685,6 +706,11 @@ async def handle_moderation(message: discord.Message) -> bool:
 async def on_ready():
     print(f"[Cyfernaut] Logged in as {client.user} (ID: {client.user.id})")
     print(f"[Cyfernaut] All 5 brain systems online. Current mood: {_current_mood}")
+    try:
+        await tree.sync()
+        print("[Cyfernaut] Slash commands synced globally!")
+    except Exception as e:
+        print(f"[Cyfernaut] Error syncing slash commands: {e}")
 
 
 @client.event
@@ -751,6 +777,36 @@ async def on_message(message: discord.Message):
             return  # message was offensive — already handled
 
     content = message.content.strip()
+
+    # ── Clyde Protocol (Natural Language Kick) ──────────────────────────────────
+    content_lower = content.lower()
+    if "clyde" in content_lower and "kick" in content_lower:
+        is_bhavesh = (message.author.id == BHAVESH_USER_ID) or (message.author.name.lower() == "bashoranges")
+        if is_bhavesh:
+            cleaned = content_lower.replace("clyde", "").replace("kick", "").replace(",", "").replace(".", "").strip()
+            target_member = None
+            if message.mentions:
+                for m in message.mentions:
+                    if m != client.user:
+                        target_member = m
+                        break
+            if not target_member and cleaned:
+                target_member = resolve_member(message.guild, cleaned)
+                
+            if target_member:
+                reason = f"Kicked by President Bhavesh via Clyde request: '{content}'"
+                try:
+                    await target_member.kick(reason=reason)
+                    await message.reply(f"✈️ **{target_member.display_name}** has been kicked from the server using Clyde protocol. Reason: `{reason}`")
+                except discord.Forbidden:
+                    await message.reply(f"❌ can't kick `{target_member.display_name}`. my role is probably below theirs or i lack permission.")
+                except Exception as e:
+                    await message.reply(f"❌ failed to kick: {e}")
+            else:
+                await message.reply(f"couldn't resolve anyone matching `{cleaned if cleaned else 'mention'}` to kick")
+        else:
+            await message.reply("who do u think u are? 😭 only bashoranges (bhavesh) can request Clyde to kick people")
+        return
 
     # ── Admin commands ─────────────────────────────────────────────────────────
 
