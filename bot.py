@@ -42,7 +42,8 @@ DISCORD_TOKEN       = os.getenv("DISCORD_TOKEN")
 ALLOWED_CHANNEL_ID  = 1505220178797920296
 
 ADMINS = ["bashoranges", "._.aazim_", "_._aazim_"]
-BHAVESH_USER_ID = int(os.getenv("BHAVESH_USER_ID", "0"))  # set BHAVESH_USER_ID in .env
+raw_bhavesh_id = os.getenv("BHAVESH_USER_ID", "0")
+BHAVESH_USER_ID = int(raw_bhavesh_id) if raw_bhavesh_id.isdigit() else 0
 
 if not GEMINI_KEY or not DISCORD_TOKEN:
     print("❌ Missing GEMINI_KEY or DISCORD_TOKEN in .env")
@@ -314,6 +315,7 @@ def split_message(text: str, limit: int = 2000) -> list[str]:
 def resolve_member(guild: discord.Guild, query: str) -> Optional[discord.Member]:
     """
     Resolves a query (mention, ID, username, or display name) to a discord.Member object.
+    Supports exact matching first, then falls back to case-insensitive partial match.
     """
     if not guild:
         return None
@@ -332,10 +334,16 @@ def resolve_member(guild: discord.Guild, query: str) -> Optional[discord.Member]
         user_id = int(query)
         return guild.get_member(user_id)
 
-    # Try name matching (case-insensitive username or nickname)
     query_lower = query.lower()
+
+    # Try exact match first
     for member in guild.members:
         if member.name.lower() == query_lower or member.display_name.lower() == query_lower:
+            return member
+
+    # Try partial substring match fallback (especially helpful for usernames like "._.aazim_")
+    for member in guild.members:
+        if query_lower in member.name.lower() or query_lower in member.display_name.lower():
             return member
 
     return None
