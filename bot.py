@@ -82,6 +82,40 @@ PROACTIVE_COOLDOWN: float  = 300   # 5 min min gap between proactive messages
 
 _active_conversations: dict = {}   # channel_id → {"user_id": int, "time": float} (tracks conversational momentum)
 
+# ── Takeover State ─────────────────────────────────────────────────────────────
+
+takeover_state = {
+    "active": False,
+    "dm_channel": None,
+    "pending_msgs": 0,
+    "last_activity": 0.0,
+    "warning_sent": False,
+    "task": None,
+    "last_message": None
+}
+
+async def monitor_takeover():
+    try:
+        while takeover_state["active"]:
+            await asyncio.sleep(5)
+            if not takeover_state["active"]:
+                break
+            
+            if takeover_state["pending_msgs"] > 0:
+                inactive_time = time.time() - takeover_state["last_activity"]
+                if inactive_time >= 60:
+                    takeover_state["active"] = False
+                    takeover_state["pending_msgs"] = 0
+                    if takeover_state["dm_channel"]:
+                        await takeover_state["dm_channel"].send("🛑 You took too long. I have taken back control.")
+                    break
+                elif inactive_time >= 30 and not takeover_state["warning_sent"]:
+                    takeover_state["warning_sent"] = True
+                    if takeover_state["dm_channel"]:
+                        await takeover_state["dm_channel"].send("⚠️ You have pending messages! Reply within 30 seconds or I will take back control.")
+    except asyncio.CancelledError:
+        pass
+
 # ── Mood Engine ────────────────────────────────────────────────────────────────
 
 MOODS = ["chill", "menace", "sleepy", "sarcastic", "chaotic", "dry", "locked_in"]
@@ -341,10 +375,43 @@ async def on_message(message: discord.Message):
 
     if isinstance(message.channel, discord.DMChannel):
         if message.author.name.lower() == "bashoranges":
+            content_lower = message.content.strip().lower()
+            
+            if content_lower == "!takeover":
+                takeover_state["active"] = True
+                takeover_state["dm_channel"] = message.channel
+                takeover_state["pending_msgs"] = 0
+                takeover_state["last_activity"] = time.time()
+                takeover_state["warning_sent"] = False
+                if takeover_state["task"]:
+                    takeover_state["task"].cancel()
+                takeover_state["task"] = asyncio.create_task(monitor_takeover())
+                await message.channel.send("🕶️ Takeover mode activated. I will forward channel messages to you. Reply here to send them to the channel. Send `!takedown` to exit.")
+                return
+
+            if content_lower == "!takedown" and takeover_state["active"]:
+                takeover_state["active"] = False
+                if takeover_state["task"]:
+                    takeover_state["task"].cancel()
+                await message.channel.send("🤖 Control returned to me.")
+                return
+            
             target_channel = client.get_channel(ALLOWED_CHANNEL_ID)
             if target_channel:
                 files = [await att.to_file() for att in message.attachments]
-                await target_channel.send(content=message.content, files=files)
+                if takeover_state["active"]:
+                    takeover_state["last_activity"] = time.time()
+                    takeover_state["pending_msgs"] = max(0, takeover_state["pending_msgs"] - 1)
+                    takeover_state["warning_sent"] = False
+                    if takeover_state["last_message"]:
+                        try:
+                            await takeover_state["last_message"].reply(content=message.content, files=files)
+                        except Exception:
+                            await target_channel.send(content=message.content, files=files)
+                    else:
+                        await target_channel.send(content=message.content, files=files)
+                else:
+                    await target_channel.send(content=message.content, files=files)
         return
 
     if message.channel.id != ALLOWED_CHANNEL_ID:
@@ -458,6 +525,24 @@ async def on_message(message: discord.Message):
     for attachment in message.attachments:
         if attachment.content_type and attachment.content_type.startswith("image/"):
             images.append(Image.open(io.BytesIO(await attachment.read())))
+
+    if takeover_state["active"]:
+        if takeover_state["dm_channel"]:
+            takeover_state["pending_msgs"] += 1
+            if takeover_state["pending_msgs"] == 1:
+                takeover_state["last_activity"] = time.time()
+                takeover_state["warning_sent"] = False
+            
+            takeover_state["last_message"] = message
+
+            image_urls = " ".join([att.url for att in message.attachments if att.url])
+            forward_msg = f"**{message.author.display_name}**: {content}"
+            if image_urls:
+                forward_msg += f"\n[Images: {image_urls}]"
+            
+            await takeover_state["dm_channel"].send(forward_msg)
+        return
+
 
     if not content and not images:
         return
