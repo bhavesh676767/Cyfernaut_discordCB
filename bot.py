@@ -338,6 +338,15 @@ async def on_reaction_add(reaction: discord.Reaction, user: discord.User):
 async def on_message(message: discord.Message):
     if message.author == client.user:
         return
+
+    if isinstance(message.channel, discord.DMChannel):
+        if message.author.name.lower() == "bashoranges":
+            target_channel = client.get_channel(ALLOWED_CHANNEL_ID)
+            if target_channel:
+                files = [await att.to_file() for att in message.attachments]
+                await target_channel.send(content=message.content, files=files)
+        return
+
     if message.channel.id != ALLOWED_CHANNEL_ID:
         return
 
